@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>忘却曲線対応・自作単語帳アプリ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen py-8 px-4 flex justify-center">
+
+  <div class="w-full max-w-lg space-y-6">
+
+    <!-- ヘッダー -->
+    <header class="text-center">
+      <h1 class="text-3xl font-extrabold text-indigo-600 mb-1">自作単語帳アプリ</h1>
+      <p class="text-xs text-slate-500">エビングハウスの忘却曲線に基づいた復習システム</p>
+    </header>
+
+    <!-- ① 今日の学習ゾーン (フラッシュカード) -->
+    <div class="bg-white rounded-xl p-5 shadow-md border border-slate-200">
+      <div class="flex justify-between items-center mb-3">
+        <span class="bg-indigo-100 text-indigo-800 text-xs font-bold px-2.5 py-1 rounded" id="card-status">今日の学習</span>
+        <span class="text-xs text-slate-400" id="card-progress">0 / 0</span>
+      </div>
+
+      <!-- フラッシュカード本体 -->
+      <div id="flashcard" onclick="toggleCard()" class="min-h-[160px] flex items-center justify-center text-2xl font-bold text-center p-4 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors select-none">
+        単語がありません
+      </div>
+
+      <!-- 評価ボタン群（左：完璧、中央：あと一歩、右：要復習） -->
+      <div id="assess-btns" class="grid grid-cols-3 gap-2 mt-4" style="display: none;">
+        <button onclick="assess('perfect')" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-lg text-sm transition-colors shadow-sm">完璧</button>
+        <button onclick="assess('good')" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-lg text-sm transition-colors shadow-sm">あと一歩</button>
+        <button onclick="assess('again')" class="bg-rose-500 hover:bg-rose-600 text-white font-bold py-3 rounded-lg text-sm transition-colors shadow-sm">要復習</button>
+      </div>
+    </div>
+
+    <!-- ② 学習記録ダッシュボード -->
+    <div class="bg-white rounded-xl p-5 shadow-md border border-slate-200">
+      <h2 class="text-lg font-bold text-slate-700 mb-3 flex items-center gap-2">
+        <span>📊</span> 本日の学習記録
+      </h2>
+      <div class="grid grid-cols-3 gap-2 text-center divide-x divide-slate-100">
+        <div>
+          <div class="text-2xl font-extrabold text-indigo-600" id="stat-words">0</div>
+          <div class="text-xs text-slate-500 mt-1">本日習得数</div>
+        </div>
+        <div>
+          <div class="text-2xl font-extrabold text-indigo-600" id="stat-time">0 分</div>
+          <div class="text-xs text-slate-500 mt-1">本日学習時間</div>
+        </div>
+        <div>
+          <div class="text-2xl font-extrabold text-indigo-600" id="stat-total">0</div>
+          <div class="text-xs text-slate-500 mt-1">総登録単語数</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ③ 単語登録＆各種設定 -->
+    <div class="bg-white rounded-xl p-5 shadow-md border border-slate-200 space-y-4">
+      <h2 class="text-lg font-bold text-slate-700 border-b pb-2">⚙️ 設定・単語登録</h2>
+
+      <div>
+        <label class="block text-xs font-bold text-slate-600 mb-1">1日の目標学習数 (上限)</label>
+        <input type="number" id="daily-limit" value="20" min="1" max="500" onchange="saveSettings()" class="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+      </div>
+
+      <div class="pt-2">
+        <h3 class="text-sm font-bold text-slate-700 mb-2">新しい単語を追加</h3>
+        <div class="space-y-2">
+          <input type="text" id="new-word" placeholder="単語 (例: apple)" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+          <input type="text" id="new-meaning" placeholder="日本語訳 (例: りんご)" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+          <button onclick="addWord()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-lg text-sm transition-colors shadow">登録する</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ④ 登録済み単語一覧 ＆ フィルターボタン群 -->
+    <div class="bg-white rounded-xl p-5 shadow-md border border-slate-200 space-y-3">
+      <div class="flex justify-between items-center border-b pb-2">
+        <h2 class="text-lg font-bold text-slate-700">📝 登録済み単語一覧</h2>
+        <span class="text-xs text-slate-400" id="filter-count">全 0 件</span>
+      </div>
+
+      <!-- 明示的なフィルターボタン群 -->
+      <div class="flex flex-wrap gap-1.5 pt-1" id="filter-buttons">
+        <button onclick="setFilter('all', this)" class="filter-btn active bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-full font-bold transition-all shadow-sm">すべて</button>
+        <button onclick="setFilter('again', this)" class="filter-btn bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs px-3 py-1.5 rounded-full font-bold transition-all">要復習</button>
+        <button onclick="setFilter('good', this)" class="filter-btn bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs px-3 py-1.5 rounded-full font-bold transition-all">あと一歩</button>
+        <button onclick="setFilter('perfect', this)" class="filter-btn bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs px-3 py-1.5 rounded-full font-bold transition-all">完璧</button>
+        <button onclick="setFilter('new', this)" class="filter-btn bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs px-3 py-1.5 rounded-full font-bold transition-all">未学習</button>
+      </div>
+
+      <!-- 一覧表示領域 -->
+      <ul id="word-list-container" class="divide-y divide-slate-100 max-h-72 overflow-y-auto border border-slate-200 rounded-lg bg-slate-50">
+        <!-- JSで一覧を生成 -->
+      </ul>
+    </div>
+
+    <!-- ⑤ データのバックアップ・復元 -->
+    <div class="bg-white rounded-xl p-5 shadow-md border border-slate-200 space-y-3">
+      <h2 class="text-sm font-bold text-slate-700">📂 単語データの共有・保存</h2>
+      <div class="grid grid-cols-2 gap-2">
+        <button onclick="exportData()" class="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 rounded-lg text-xs transition-colors">書き出し (保存)</button>
+        <button onclick="document.getElementById('import-file').click()" class="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 rounded-lg text-xs transition-colors">読み込み (復元)</button>
+      </div>
+      <input type="file" id="import-file" style="display: none;" onchange="importData(event)">
+    </div>
+
+  </div>
+
+  <script>
+    // データ初期化
+    let words = JSON.parse(localStorage.getItem('my_words') || '[]');
+    let settings = JSON.parse(localStorage.getItem('my_settings') || '{"limit": 20}');
+    let log = JSON.parse(localStorage.getItem('my_log') || '{"date": "", "wordsCount": 0, "seconds": 0}');
+
+    let todayQueue = [];
+    let currentWordIndex = -1;
+    let isFront = true;
+    let timerInterval = null;
+    let currentFilter = 'all';
+
+    function getTodayString() {
+      return new Date().toISOString().split('T')[0];
+    }
+
+    function init() {
+      const today = getTodayString();
+
+      if (log.date !== today) {
+        log = { date: today, wordsCount: 0, seconds: 0 };
+        saveLog();
+      }
+
+      document.getElementById('daily-limit').value = settings.limit;
+
+      if (!timerInterval) {
+        timerInterval = setInterval(() => {
+          log.seconds++;
+          saveLog();
+          updateStats();
+        }, 1000);
+      }
+
+      prepareTodayQueue();
+      renderWordList();
+      updateStats();
+      showNextWord();
+    }
+
+    // 復習対象のキュー作成
+    function prepareTodayQueue() {
+      const today = getTodayString();
+      let dueWords = words.filter(w => w.nextReview <= today);
+      todayQueue = dueWords.slice(0, settings.limit);
+    }
+
+    // フラッシュカードの表示更新
+    function showNextWord() {
+      const cardEl = document.getElementById('flashcard');
+      const btnsEl = document.getElementById('assess-btns');
+      const progressEl = document.getElementById('card-progress');
+
+      if (todayQueue.length === 0) {
+        cardEl.textContent = "今日の学習は完了しました！🎉";
+        btnsEl.style.display = 'none';
+        document.getElementById('card-status').textContent = "達成！";
+        progressEl.textContent = "0 / 0";
+        currentWordIndex = -1;
+        return;
+      }
+
+      currentWordIndex = 0;
+      isFront = true;
+      cardEl.textContent = todayQueue[currentWordIndex].word;
+      btnsEl.style.display = 'grid';
+      document.getElementById('card-status').textContent = "学習中";
+      progressEl.textContent = `残り ${todayQueue.length} 単語`;
+    }
+
+    // 表裏のめくり切り替え
+    function toggleCard() {
+      if (currentWordIndex === -1) return;
+      const cardEl = document.getElementById('flashcard');
+      const wordObj = todayQueue[currentWordIndex];
+
+      if (isFront) {
+        cardEl.textContent = wordObj.meaning;
+      } else {
+        cardEl.textContent = wordObj.word;
+      }
+      isFront = !isFront;
+    }
+
+    // 評価ボタンの押下処理
+    function assess(rating) {
+      if (currentWordIndex === -1) return;
+
+      let wordObj = todayQueue[currentWordIndex];
+      let interval = wordObj.interval || 0;
+
+      wordObj.lastRating = rating;
+
+      if (rating === 'again') {
+        interval = 0;
+      } else if (rating === 'good') {
+        interval = interval === 0 ? 1 : Math.round(interval * 1.5);
+      } else if (rating === 'perfect') {
+        if (interval === 0) interval = 1;
+        else if (interval === 1) interval = 3;
+        else if (interval === 3) interval = 7;
+        else if (interval === 7) interval = 14;
+        else interval = Math.round(interval * 2.2);
+      }
+
+      const nextDate = new Date();
+      nextDate.setDate(nextDate.getDate() + (interval === 0 ? 0 : interval));
+
+      wordObj.interval = interval;
+      wordObj.nextReview = nextDate.toISOString().split('T')[0];
+
+      if (rating !== 'again') {
+        log.wordsCount++;
+        saveLog();
+        todayQueue.shift();
+      } else {
+        const current = todayQueue.shift();
+        todayQueue.push(current);
+      }
+
+      saveWords();
+      updateStats();
+      renderWordList();
+      showNextWord();
+    }
+
+    // 単語登録（重複チェック付き）
+    function addWord() {
+      const wordInput = document.getElementById('new-word');
+      const meaningInput = document.getElementById('new-meaning');
+
+      const inputWord = wordInput.value.trim();
+      const inputMeaning = meaningInput.value.trim();
+
+      if (!inputWord || !inputMeaning) {
+        alert('単語と日本語訳の両方を入力してください');
+        return;
+      }
+
+      const isDuplicate = words.some(w => w.word.trim().toLowerCase() === inputWord.toLowerCase());
+
+      if (isDuplicate) {
+        alert(`「${inputWord}」はすでに登録されています！`);
+        return;
+      }
+
+      const newEntry = {
+        id: Date.now(),
+        word: inputWord,
+        meaning: inputMeaning,
+        interval: 0,
+        nextReview: getTodayString(),
+        lastRating: 'new'
+      };
+
+      words.push(newEntry);
+      saveWords();
+
+      wordInput.value = '';
+      meaningInput.value = '';
+
+      init();
+      alert('単語を登録しました！');
+    }
+
+    // 単語削除
+    function deleteWord(id) {
+      if (!confirm('この単語を削除してもよろしいですか？')) return;
+      words = words.filter(w => w.id !== id);
+      saveWords();
+      init();
+    }
+
+    // フィルターの切り替え設定
+    function setFilter(filterType, btnEl) {
+      currentFilter = filterType;
+
+      // ボタンのアクティブ状態の見た目を更新
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.remove('bg-indigo-600', 'text-white', 'shadow-sm');
+        btn.classList.add('bg-slate-200', 'text-slate-700', 'hover:bg-slate-300');
+      });
+
+      btnEl.classList.remove('bg-slate-200', 'text-slate-700', 'hover:bg-slate-300');
+      btnEl.classList.add('bg-indigo-600', 'text-white', 'shadow-sm');
+
+      renderWordList();
+    }
+
+    // 分類タグの取得
+    function getStatusBadge(rating) {
+      if (rating === 'again') return '<span class="bg-rose-100 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded">要復習</span>';
+      if (rating === 'good') return '<span class="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded">あと一歩</span>';
+      if (rating === 'perfect') return '<span class="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded">完璧</span>';
+      return '<span class="bg-slate-200 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded">未学習</span>';
+    }
+
+    // 一覧描画
+    function renderWordList() {
+      const container = document.getElementById('word-list-container');
+      const countEl = document.getElementById('filter-count');
+      container.innerHTML = '';
+
+      let filteredWords = words.filter(w => {
+        const rating = w.lastRating || 'new';
+        if (currentFilter === 'all') return true;
+        return rating === currentFilter;
+      });
+
+      countEl.textContent = `表示 ${filteredWords.length} / 全 ${words.length} 件`;
+
+      if (filteredWords.length === 0) {
+        container.innerHTML = '<li class="p-4 text-center text-xs text-slate-400">該当する単語はありません</li>';
+        return;
+      }
+
+      filteredWords.forEach(w => {
+        const rating = w.lastRating || 'new';
+        const li = document.createElement('li');
+        li.className = 'p-3 flex items-center justify-between hover:bg-white transition-colors';
+        li.innerHTML = `
+          <div class="space-y-0.5">
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-sm text-slate-800">${escapeHtml(w.word)}</span>
+              ${getStatusBadge(rating)}
+            </div>
+            <div class="text-xs text-slate-500">${escapeHtml(w.meaning)}</div>
+          </div>
+          <button onclick="deleteWord(${w.id})" class="bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs px-2.5 py-1 rounded border border-rose-200 transition-colors font-medium">削除</button>
+        `;
+        container.appendChild(li);
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function updateStats() {
+      document.getElementById('stat-words').textContent = log.wordsCount;
+      document.getElementById('stat-total').textContent = words.length;
+
+      const minutes = Math.floor(log.seconds / 60);
+      document.getElementById('stat-time').textContent = `${minutes} 分`;
+    }
+
+    // データ書き出し
+    function exportData() {
+      if (words.length === 0) {
+        alert('書き出す単語データがありません。');
+        return;
+      }
+      const jsonString = JSON.stringify(words, null, 2);
+      const blob = new Blob([jsonString], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.href = url;
+      downloadAnchor.download = `wordbook_backup_${getTodayString()}.json`;
+
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+
+      setTimeout(() => {
+        document.body.removeChild(downloadAnchor);
+        URL.revokeObjectURL(url);
+      }, 100);
+    }
+
+    // データ読み込み
+    function importData(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const importedWords = JSON.parse(e.target.result);
+
+          if (!Array.isArray(importedWords)) {
+            alert('正しくないファイル形式です。');
+            return;
+          }
+
+          if (words.length > 0) {
+            const action = prompt(
+              `現在の単語データ（${words.length}件）が存在します。\n\n` +
+              `【 1 】現在のデータに残りの単語を「追加（合体）」する\n` +
+              `【 2 】現在のデータを削除して「上書き」する\n\n` +
+              `半角数字で 1 または 2 を入力して OK を押してください。`
+            );
+
+            if (action === '1') {
+              let addedCount = 0;
+              importedWords.forEach(newW => {
+                const isDuplicate = words.some(w => w.word.trim().toLowerCase() === newW.word.trim().toLowerCase());
+                if (!isDuplicate) {
+                  newW.id = Date.now() + Math.random();
+                  words.push(newW);
+                  addedCount++;
+                }
+              });
+              saveWords();
+              init();
+              alert(`読み込み完了！ ${addedCount}件の新しい単語を追加しました。`);
+
+            } else if (action === '2') {
+              if (confirm('本当に現在のデータを消去して上書きしてもよろしいですか？')) {
+                words = importedWords;
+                saveWords();
+                init();
+                alert('単語データを上書き読み込みしました！');
+              }
+            } else {
+              alert('読み込みをキャンセルしました。');
+            }
+
+          } else {
+            words = importedWords;
+            saveWords();
+            init();
+            alert('単語データを読み込みました！');
+          }
+
+        } catch (err) {
+          alert('ファイルの読み込みに失敗しました。');
+        }
+
+        event.target.value = '';
+      };
+      reader.readAsText(file);
+    }
+
+    function saveWords() { localStorage.setItem('my_words', JSON.stringify(words)); }
+    function saveLog() { localStorage.setItem('my_log', JSON.stringify(log)); }
+    function saveSettings() {
+      settings.limit = parseInt(document.getElementById('daily-limit').value) || 20;
+      localStorage.setItem('my_settings', JSON.stringify(settings));
+      init();
+    }
+
+    init();
+  </script>
+
+</body>
+</html>
